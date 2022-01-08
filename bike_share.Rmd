@@ -1,0 +1,185 @@
+---
+title: "Bike Share Capstone"
+author: "Colleen Shifflett"
+date: "10/7/2021"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r}
+
+ 
+library(tidyverse)  #helps wrangle data
+library(lubridate)  #helps wrangle date attributes
+library(ggplot2)  #helps visualize data
+
+
+```
+
+```{r}
+oct = read.csv("oct_20.csv")
+nov = read.csv("nov_20.csv")
+dec = read.csv("dec_20.csv")
+jan = read.csv("jan_21.csv")
+feb = read.csv("feb_21.csv")
+
+
+
+mar = read.csv("mar_21.csv")
+apr = read.csv("apr_21.csv")
+may = read.csv("may_21.csv")
+jun = read.csv("jun_21.csv")
+jul = read.csv("jul_21.csv")
+aug = read.csv("aug_21.csv")
+sep = read.csv("sep_21.csv")
+
+                       
+
+```
+First, I joined the data from each month into one dataframe. In doing this, I realized that 2 months, October and November 2020, had columns that didn't match the data type of the rest of the months. So I had to change the data type for those columns so that all of the data could be joined together. 
+```{r}
+
+data_2020 <- bind_rows(oct, nov)
+
+
+data_2020$start_station_id <- as.character(data_2020$start_station_id)
+data_2020$end_station_id <- as.character(data_2020$end_station_id)
+head(data_2020)
+```
+
+```{r}
+library(tidyverse)
+
+all_data <- bind_rows(data_2020, dec, jan, feb, mar, apr, may, jun, jul, aug, sep)
+
+head(all_data)
+
+```
+
+Next I needed to know how long each ride was. I had to make sure the dates were in recognized in the correct format and then add a column for ride length with the time difference. 
+
+```{r}
+all_data$started_at_date <- ymd_hms(all_data$started_at) 
+all_data$ended_at_date <- ymd_hms(all_data$ended_at) 
+all_data$ride_length <- difftime(all_data$ended_at_date,all_data$started_at_date)
+
+head(all_data)
+```
+I also want to be able to analyze the data by days of the week and months of the year. I'll create new columns with the data that I want. 
+
+```{r}
+all_data$date <- as.Date(all_data$started_at_date) #The default format is yyyy-mm-dd
+all_data$month <- format(as.Date(all_data$date), "%m")
+all_data$day <- format(as.Date(all_data$date), "%d")
+all_data$year <- format(as.Date(all_data$date), "%Y")
+all_data$day_of_week <- format(as.Date(all_data$date), "%A")
+head(all_data)
+
+```
+
+Next, when it comes to ride length, I notice that some are very short. In the documentation that accomplanied the data, I was made aware of test rides, but unfortunately the label I was given for these rides was old. So I explored some of the data and found the current label for test rides. I also made the decision to remove rides shorter than 10 seconds, as these would probably indicate an error. 
+
+Going forward we need to determine what constitutes a valid ride, as we're still surely dealing with some inaccurate data, but we should take a more educated guess for the cutoff. 
+```{r}
+
+
+all_trips <- all_data[!(all_data$start_station_name == "WATSON TESTING - DIVVY" | all_data$ride_length<10),]
+
+head(all_trips)
+
+```
+When preparing the data I noticed rows with null values, so now I'm removing those. 
+```{r}
+all_valid_trips <- na.omit(all_trips) #removes rows with null values
+head(all_valid_trips)
+```
+```{r}
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual, FUN = mean)
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual, FUN = median)
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual, FUN = max)
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual, FUN = min)
+
+
+```
+
+Now I want to start analyzing usage by days of the week between casual members and subscribers. 
+```{r}
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual + all_valid_trips$day_of_week, FUN = mean)
+
+all_valid_trips$day_of_week <- ordered(all_valid_trips$day_of_week, levels=c("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"))
+```
+```{r}
+aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual + all_valid_trips$day_of_week, FUN = mean)
+```
+```{r}
+all_valid_trips %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>%  #creates weekday field using wday()
+  group_by(member_casual, weekday) %>%  #groups by usertype and weekday
+  summarise(number_of_rides = n()							#calculates the number of rides and average duration 
+  ,average_duration = mean(ride_length)) %>% 		# calculates the average duration
+  arrange(member_casual, weekday)								# sorts
+
+```
+There were fewer member rides on weekends, while weekends were peak for casual rides. 
+```{r}
+all_valid_trips %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")
+
+```
+However, when we take a look at ride length, both casual users and subsribers rode longer on the weekends on average. 
+```{r}
+all_valid_trips %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(member_casual, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, weekday)  %>% 
+  ggplot(aes(x = weekday, y = average_duration, fill = member_casual)) +
+  geom_col(position = "dodge")
+
+```
+```{r}
+counts <- aggregate(all_valid_trips$ride_length ~ all_valid_trips$member_casual + all_valid_trips$day_of_week, FUN = mean)
+write.csv(counts, file = '~/Desktop/avg_ride_length.csv')
+
+```
+The day of the week is good information to have, but I wanted to know if seasons had anything to do with usage. I suspected that there would be more casual users during the summer months, and that was corrrect. During non-summer months there were more member rides. 
+```{r}
+all_valid_trips %>% 
+  
+  group_by(member_casual, month) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(member_casual, month)  %>% 
+  ggplot(aes(x = month, y = number_of_rides, fill = member_casual)) +
+  geom_col(position = "dodge")
+```
+
+Curious about days of the week throughout the year, I used all user day to view the number of rides by day of the week for each month, and I found that overall, distribution is fairly even, with slightly more rides on weekends overall. 
+```{r}
+all_valid_trips %>% 
+  mutate(weekday = wday(started_at, label = TRUE)) %>% 
+  group_by(month, weekday) %>% 
+  summarise(number_of_rides = n()
+            ,average_duration = mean(ride_length)) %>% 
+  arrange(month, weekday)  %>% 
+  ggplot(aes(x = month, y = number_of_rides, fill = weekday)) +
+  geom_col(position = "stack")
+
+```
+
+Given this data, here's how I'm seeing casual and member riders using bikes differently:
+- Casual ridership is up in the summer, and on weekends. Overall they ride longer, perhaps keeping bikes overnight. 
+- Member rides are overall lower on weekends, and higher during the week. Ride length isn't as affected by weekends, however. Members are much more likely that casual riders to ride in the winter. 
+
+```{r}
+write.csv(all_valid_trips,"all_valid_trips.csv")
+```
+
